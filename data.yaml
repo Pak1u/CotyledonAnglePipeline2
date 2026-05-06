@@ -1,0 +1,8 @@
+path: D:/rmproject/datasets/sapling_pose
+train: images/train
+val: images/val
+
+# 5 Keypoints: [x, y, visibility]
+kpt_shape: [5, 3] 
+names:
+  0: sapling

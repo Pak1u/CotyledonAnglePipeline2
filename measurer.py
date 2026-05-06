@@ -13,7 +13,7 @@ load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 llm = ChatGoogleGenerativeAI(
-    model="gemini-3.1-pro-preview", 
+    model="gemini-3-flash-preview", # High-fidelity vision with low latency
     google_api_key=GEMINI_API_KEY,
     temperature=0 
 )
