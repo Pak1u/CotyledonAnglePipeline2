@@ -1,36 +1,43 @@
+"""Train the YOLOv8 pose model used for cotyledon angle prediction."""
+
 from ultralytics import YOLO
 
-def main():
-    # Load the base pose model
-    model = YOLO('yolov8n-pose.pt')
+from cotyledon_angle.paths import BASE_POSE_MODEL, DATA_YAML, PROJECT_ROOT
 
-    # Start optimized training
+def main():
+    # Start from YOLOv8n-pose and fine-tune it on the five sapling landmarks
+    # described in data.yaml.
+    model = YOLO(str(BASE_POSE_MODEL))
+
+    # These settings are tuned for a small curated sapling dataset. AMP is off
+    # because earlier runs hit NaN losses with mixed precision.
     model.train(
-        data='data.yaml',
-        epochs=150,        # Increased epochs to allow for better convergence
-        imgsz=640,         # Standard resolution for high detail
-        batch=16,          # Increased batch size for more stable gradients
-        workers=4,          # Leveraging multi-threading since system is stable
-        device=0,          # Using your 1660 Super
-        project='SaplingProject',
+        data=str(DATA_YAML),
+        epochs=150,
+        imgsz=640,
+        batch=16,
+        workers=4,
+        device=0,
+        project=str(PROJECT_ROOT / 'runs' / 'pose' / 'SaplingProject'),
         name='v1_final_clean',
         
-        # --- Advanced Hyperparameters ---
-        optimizer='AdamW', # Often better for pose estimation on small datasets
-        lr0=0.01,          # Initial learning rate
-        patience=50,       # Stops early if no improvement for 50 epochs
-        amp=False,         # Keeping False to avoid the NaN loss errors seen earlier
+        # AdamW tends to behave well for small pose datasets with sparse labels.
+        optimizer='AdamW',
+        lr0=0.01,
+        patience=50,
+        amp=False,
         
-        # --- Augmentation (Crucial for small datasets) ---
-        mosaic=1.0,        # Combines images to help the model see different scales
-        mixup=0.1,         # Blends images to reduce overfitting
-        flipud=0.5,        # Vertical flip for different growth angles
-        fliplr=0.5,        # Horizontal flip
-        degrees=15.0,      # Slight rotations to simulate natural variation
+        # Augmentation helps the model generalize to plant scale, orientation,
+        # and lighting variation seen across trays/images.
+        mosaic=1.0,
+        mixup=0.1,
+        flipud=0.5,
+        fliplr=0.5,
+        degrees=15.0,
         
-        # --- Loss Weights ---
-        pose=12.0,         # Higher weight on keypoint accuracy
-        kobj=1.0           # Objectness weight for the sapling itself
+        # Keypoint accuracy matters more than the bounding box for angle output.
+        pose=12.0,
+        kobj=1.0
     )
 
 if __name__ == '__main__':

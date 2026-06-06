@@ -1,8 +1,10 @@
-path: D:/rmproject/datasets/sapling_pose
+# Dataset root is relative to this repository so training works across machines.
+path: datasets/sapling_pose
 train: images/train
 val: images/val
 
-# 5 Keypoints: [x, y, visibility]
+# YOLOv8 pose labels store 5 keypoints as [x, y, visibility].
+# Order: left tip, left base, right base, right tip, central junction.
 kpt_shape: [5, 3] 
 names:
   0: sapling

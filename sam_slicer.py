@@ -1,5 +1,12 @@
-import cv2
+"""Segment full-tray images into individual sapling crops.
+
+Despite the historical file name, this uses deterministic OpenCV thresholding
+instead of Segment Anything. It supports the legacy Gemini measuring workflow.
+"""
+
 import os
+
+import cv2
 import numpy as np
 
 def segment_and_save_crops(image_path, output_subfolder):
@@ -16,22 +23,21 @@ def segment_and_save_crops(image_path, output_subfolder):
         print(f"   [Error] Could not read image at: {image_path}")
         return []
         
-    # Step 1: Pre-processing
-    # Convert to grayscale and apply Gaussian Blur to remove sensor noise
+    # Convert to grayscale and blur first so Otsu thresholding is less sensitive
+    # to sensor noise and tiny soil/background texture.
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
 
-    # Step 2: Thresholding (Otsu's Method)
-    # This automatically finds the best background/foreground cut-off
+    # Otsu chooses the foreground/background cut-off from each image histogram.
     _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-    # Step 3: Morphological Closing
-    # This 'glues' the thin stems and leaves together so they are treated as one blob
+    # Closing joins thin stems/leaves into one contour so each plant becomes a
+    # single crop candidate.
     kernel = np.ones((7, 7), np.uint8)
     morph = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
 
-    # Step 4: Contour Detection
-    # Find the external boundaries of the plants
+    # Only external contours are needed because each crop should contain a whole
+    # sapling, not internal leaf/stem holes.
     contours, _ = cv2.findContours(morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     crop_paths = []
@@ -40,15 +46,13 @@ def segment_and_save_crops(image_path, output_subfolder):
     for i, cnt in enumerate(contours):
         area = cv2.contourArea(cnt)
         
-        # Step 5: Area Filtering (The 'Big Enough' check)
-        # 1000 pixels is usually safe for a whole sapling, adjust if needed
+        # Reject tiny specks; 1000 px was chosen for the original tray images.
         if area < 1000:
             continue
             
         x, y, w, h = cv2.boundingRect(cnt)
         
-        # Step 6: Padding & Cropping
-        # We add 30px padding so the leaf tips aren't cut off for the Analyst Agent
+        # Padding protects leaf tips from being clipped by the contour rectangle.
         pad = 30
         y1, y2 = max(0, y-pad), min(image.shape[0], y+h+pad)
         x1, x2 = max(0, x-pad), min(image.shape[1], x+w+pad)

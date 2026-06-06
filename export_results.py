@@ -1,34 +1,40 @@
-import cv2
-import numpy as np
-from ultralytics import YOLO
-import os
+"""Export cotyledon angle predictions for every curated train/val image."""
+
+import argparse
 import csv
 import glob
+import os
+from pathlib import Path
 
-# --- Configuration ---
-MODEL_PATH = r'D:\rmproject\runs\pose\SaplingProject\v1_final_clean\weights\best.pt'
-DATASET_DIR = r'D:\rmproject\datasets\sapling_pose\images'
-OUTPUT_CSV = 'sapling_cleaned_data.csv'
+import numpy as np
+from ultralytics import YOLO
 
-model = YOLO(MODEL_PATH)
+from cotyledon_angle.geometry import CotyledonPoints, cotyledon_angles
+from cotyledon_angle.paths import DATASET_DIR, DEFAULT_EXPORT_CSV, FINAL_MODEL
 
-def get_angle(A, B, C):
-    """Calculates angle ABC (vertex at B) using vector dot product."""
-    ba = A - B
-    bc = C - B
-    norm_ba = np.linalg.norm(ba)
-    norm_bc = np.linalg.norm(bc)
-    if norm_ba == 0 or norm_bc == 0: return 0
-    
-    cosine_angle = np.dot(ba, bc) / (norm_ba * norm_bc)
-    return np.degrees(np.arccos(np.clip(cosine_angle, -1.0, 1.0)))
 
-def run_split_analysis():
-    # Header: Split identifies if it was from the 80% train or 20% val set
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--model", type=Path, default=FINAL_MODEL, help="YOLOv8 pose weights to use.")
+    parser.add_argument(
+        "--images-dir",
+        type=Path,
+        default=DATASET_DIR / "images",
+        help="Directory containing train/ and val/ image folders.",
+    )
+    parser.add_argument("--output", type=Path, default=DEFAULT_EXPORT_CSV, help="CSV output path.")
+    parser.add_argument("--conf", type=float, default=0.6, help="Prediction confidence threshold.")
+    return parser.parse_args()
+
+
+def run_split_analysis(model_path: Path, images_dir: Path, output_csv: Path, conf: float):
+    """Predict angles for all images and write a compact CSV report."""
+    model = YOLO(str(model_path))
+
+    # Split identifies whether the image came from the train or validation set.
     header = ['Split', 'Filename', 'Stalk_Angle', 'Tip_Angle', 'Confidence_Avg']
     
-    # Target only the images YOLO is actually using
-    search_path = os.path.join(DATASET_DIR, "**", "*.jpg")
+    search_path = os.path.join(str(images_dir), "**", "*.jpg")
     image_paths = glob.glob(search_path, recursive=True)
 
     print(f"--- Processing {len(image_paths)} curated images from your 80/20 split ---")
@@ -36,10 +42,8 @@ def run_split_analysis():
     results_data = []
 
     for img_path in image_paths:
-        # Run model
-        results = model(img_path, conf=0.6, verbose=False)
+        results = model(img_path, conf=conf, verbose=False)
         
-        # Identify if it's 'train' or 'val' folder
         split_name = os.path.basename(os.path.dirname(img_path))
         file_name = os.path.basename(img_path)
 
@@ -48,33 +52,27 @@ def run_split_analysis():
                 results_data.append([split_name, file_name, "FAIL", "FAIL", 0.0])
                 continue
 
-            # Junction is at index 4 (last click)
             pts = r.keypoints.xy[0].cpu().numpy()
-            conf = r.keypoints.conf[0].cpu().numpy()
-            
-            p_tip_l, p_base_l = pts[0], pts[1]
-            p_base_r, p_tip_r = pts[2], pts[3]
-            junc = pts[4] 
-
-            # Vectorized Angle Calculation
-            stalk_ang = get_angle(p_base_l, junc, p_base_r)
-            tip_ang = get_angle(p_tip_l, junc, p_tip_r)
+            keypoint_conf = r.keypoints.conf[0].cpu().numpy()
+            cotyledon_points = CotyledonPoints.from_yolo(pts)
+            stalk_ang, tip_ang = cotyledon_angles(cotyledon_points)
 
             results_data.append([
                 split_name, 
                 file_name, 
                 round(stalk_ang, 2), 
                 round(tip_ang, 2), 
-                round(np.mean(conf), 4)
+                round(np.mean(keypoint_conf), 4)
             ])
 
-    # Save to CSV
-    with open(OUTPUT_CSV, 'w', newline='') as f:
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_csv, 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(header)
         writer.writerows(results_data)
 
-    print(f"\nSUCCESS: Data for {len(image_paths)} images saved to {OUTPUT_CSV}")
+    print(f"\nSUCCESS: Data for {len(image_paths)} images saved to {output_csv}")
 
 if __name__ == "__main__":
-    run_split_analysis()
+    args = parse_args()
+    run_split_analysis(args.model, args.images_dir, args.output, args.conf)
