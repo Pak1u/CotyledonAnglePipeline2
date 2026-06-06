@@ -1,4 +1,4 @@
-"""Train the YOLOv8 pose model used for cotyledon angle prediction."""
+"""Train the YOLOv8 pose model used for cotyledon angle prediction"""
 
 from ultralytics import YOLO
 
